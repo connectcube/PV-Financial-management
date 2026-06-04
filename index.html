@@ -45,6 +45,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray-50); color: va
   display: flex; flex-direction: column;
   position: fixed; top: 0; left: 0; height: 100vh; z-index: 100;
   transition: transform .25s ease;
+  overflow: hidden;
 }
 #main { margin-left: var(--sidebar-w); flex: 1; min-height: 100vh; }
 #topbar {
@@ -56,19 +57,20 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray-50); color: va
 
 /* ── SIDEBAR ── */
 .sb-logo {
-  padding: 24px 20px 20px;
+  padding: 20px 16px 16px;
   border-bottom: 1px solid rgba(255,255,255,.08);
   display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
 }
 .sb-logo img { width: 36px; height: 36px; object-fit: contain; border-radius: 8px; background: white; padding: 3px; }
 .sb-logo-text { font-size: 16px; font-weight: 600; color: var(--white); letter-spacing: -.01em; }
 .sb-logo-sub { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 1px; }
-.sb-nav { padding: 16px 12px; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.sb-nav { padding: 16px 12px; flex: 1; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
 .sb-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: rgba(255,255,255,.3); padding: 12px 8px 6px; }
 .sb-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 8px; cursor: pointer;
-  font-size: 14px; font-weight: 500; color: rgba(255,255,255,.6);
+  padding: 9px 12px; border-radius: 8px; cursor: pointer;
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,.6);
   transition: all .15s; border: none; background: none; width: 100%; text-align: left;
   font-family: 'DM Sans', sans-serif;
 }
@@ -77,6 +79,7 @@ body { font-family: 'DM Sans', sans-serif; background: var(--gray-50); color: va
 .sb-item .icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
 .sb-bottom {
   padding: 16px 12px; border-top: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
 }
 .sb-user { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
 .sb-avatar {
@@ -254,6 +257,10 @@ tbody tr:hover td { background: var(--gray-50); }
   .two-col { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: 1fr 1fr; }
 }
+
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(196,30,82,.25);border-top-color:#C41E52;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#init-overlay{position:fixed;inset:0;background:rgba(17,17,17,.94);display:none;align-items:center;justify-content:center;z-index:9999;font-family:'DM Sans',sans-serif;color:white;font-size:15px;gap:12px;flex-direction:column}
 </style>
 </head>
 <body>
@@ -309,10 +316,42 @@ const DP = [
 ];
 
 // ── Storage ───────────────────────────────────────────────────
-const SS = {
-  get: k => { try { const r = localStorage.getItem(k); return r ? JSON.parse(r) : null; } catch { return null; } },
-  set: (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+// ── Supabase backend ─────────────────────────────────────────
+const SB_URL = "https://hyebzkonqupuvqapmigc.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh5ZWJ6a29ucXVwdXZxYXBtaWdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1OTM5MzUsImV4cCI6MjA5NjE2OTkzNX0.H2RoA9-O11i3xYGiK5hHCL_eAt7AuLWPiA7mNM5fp7U";
+
+async function sbFetch(path, method="GET", body=null) {
+  const opts = {
+    method,
+    headers: {
+      "apikey": SB_KEY,
+      "Authorization": "Bearer " + SB_KEY,
+      "Content-Type": "application/json",
+      "Prefer": method === "POST" ? "return=representation" : ""
+    }
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(SB_URL + "/rest/v1/" + path, opts);
+  if (!res.ok) { const err = await res.text(); throw new Error(err); }
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : [];
+}
+
+const DB = {
+  all:    (t, ord="created_at") => sbFetch(t + "?order=" + ord),
+  insert: (t, row) => sbFetch(t, "POST", row),
+  update: (t, id, row) => sbFetch(t + "?id=eq." + id, "PATCH", row),
+  del:    (t, id) => sbFetch(t + "?id=eq." + id, "DELETE"),
 };
+
+function showSaving(msg) {
+  document.title = "⏳ " + (msg||"Saving") + "... — PV Farms";
+}
+function hideSaving() {
+  document.title = "PV Farms — Financial Management";
+  const el = document.getElementById("sync-badge");
+  if(el) { el.textContent = "✓ Synced"; el.style.display = "inline"; setTimeout(()=>{if(el)el.style.display="none";}, 2000); }
+}
 
 // ── App state ─────────────────────────────────────────────────
 let APP = { user:null, tab:"dashboard", users:[], income:[], expenses:[], products:[], customers:[], loaded:false };
@@ -322,15 +361,47 @@ let ST = { dashMonth:null, custView:null, editCustId:null, editProdId:null, incF
 const dc = id => { if(CH[id]){ CH[id].destroy(); delete CH[id]; } };
 const da = () => Object.keys(CH).forEach(dc);
 
-function init() {
-  const defUser = {id:"sa0",name:"Farm Owner",username:"owner",password:"pvfarms2024",role:"superadmin"};
-  APP.users  = SS.get("pv_users") || [defUser];
-  APP.income   = SS.get("pv_income") || [];
-  APP.expenses = SS.get("pv_expenses") || [];
-  APP.products = SS.get("pv_products") || DP;
-  APP.customers= SS.get("pv_customers") || [];
-  if(!SS.get("pv_users")) SS.set("pv_users", APP.users);
-  if(!SS.get("pv_products")) SS.set("pv_products", APP.products);
+// Loading overlay
+function showOverlay(msg) {
+  let el = document.getElementById("init-overlay");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "init-overlay";
+    el.style.cssText = "position:fixed;inset:0;background:rgba(17,17,17,.92);display:flex;align-items:center;justify-content:center;z-index:9999;font-family:'DM Sans',sans-serif;color:white;font-size:16px;gap:12px;flex-direction:column";
+    document.body.appendChild(el);
+  }
+  el.innerHTML = '<div style="width:36px;height:36px;border:3px solid rgba(196,30,82,.3);border-top-color:#C41E52;border-radius:50%;animation:spin .7s linear infinite"></div><div>' + (msg||"Loading...") + '</div>';
+  el.style.display = "flex";
+}
+function hideOverlay() {
+  const el = document.getElementById("init-overlay");
+  if (el) el.style.display = "none";
+}
+
+async function init() {
+  showOverlay("Loading PV Farms...");
+  try {
+    const [users, products, income, expenses, customers] = await Promise.all([
+      DB.all("pv_users"),
+      DB.all("pv_products"),
+      DB.all("pv_income", "date"),
+      DB.all("pv_expenses", "date"),
+      DB.all("pv_customers"),
+    ]);
+    APP.users     = users || [];
+    APP.products  = (products || []).map(p => ({...p, costPerUnit: Number(p.cost_per_unit||0), price: Number(p.price||0)}));
+    APP.income    = (income || []).map(r => ({...r, productId: r.product_id, customerId: r.customer_id, total: Number(r.total||0), qty: Number(r.qty||0), price: Number(r.price||0)})).sort((a,b) => new Date(b.date) - new Date(a.date));
+    APP.expenses  = (expenses || []).map(r => ({...r, group: r.grp, total: Number(r.total||0), qty: Number(r.qty||0), cost: Number(r.cost||0)})).sort((a,b) => new Date(b.date) - new Date(a.date));
+    APP.customers = customers || [];
+    if (!APP.users.length) {
+      alert("Database connected but no users found.\nPlease run the setup SQL in Supabase first.");
+    }
+  } catch(e) {
+    hideOverlay();
+    alert("Cannot connect to database.\n\nCheck your internet connection and try again.\n\nError: " + e.message);
+    return;
+  }
+  hideOverlay();
   APP.loaded = true;
   render();
 }
@@ -673,7 +744,7 @@ function rIncome(h,ro) {
   ${!ro?`<div class="card">
     <div class="card-header"><div class="card-title">Record a sale</div></div>
     <div class="form-grid fg2">
-      <div class="field"><label>Date</label><input type="date" id="id" value="${TD()}"></div>
+      <div class="field"><label>Date <span style="font-weight:400;color:var(--gray-400);font-size:11px">— any past date works</span></label><input type="date" id="id" value="${TD()}"></div>
       <div class="field"><label>Product</label><select id="ip" onchange="fP()">${APP.products.map(p=>`<option value="${p.id}">${p.name}</option>`).join("")}<option value="_other">Other</option></select></div>
       <div class="field"><label>Quantity sold</label><input type="number" id="iq" placeholder="e.g. 50" min="0" step="0.01"></div>
       <div class="field"><label>Unit</label><input id="iu" placeholder="auto-fills"></div>
@@ -713,17 +784,28 @@ function rIncome(h,ro) {
   if(!ro){fP();const q=document.getElementById("iq"),p=document.getElementById("ipr");const up=()=>{const t=(parseFloat(q?.value)||0)*(parseFloat(p?.value)||0);const el=document.getElementById("ipr2");if(el)el.textContent=t>0?"= "+ZMW(t):"";};q?.addEventListener("input",up);p?.addEventListener("input",up);}
 }
 function fP(){const s=document.getElementById("ip");if(!s)return;const p=APP.products.find(x=>x.id===s.value);if(p){const pr=document.getElementById("ipr"),iu=document.getElementById("iu");if(pr&&!pr.value)pr.value=p.price;if(iu)iu.value=p.unit;}}
-function addInc(){
+async function addInc(){
   const s=document.getElementById("ip"),pid=s?.value,p=APP.products.find(x=>x.id===pid);
   const qty=parseFloat(document.getElementById("iq")?.value)||0,price=parseFloat(document.getElementById("ipr")?.value)||0;
-  if(!qty||!price){const el=document.getElementById("imsg");if(el)el.innerHTML=`<div class="alert alert-err">Please fill in quantity and price.</div>`;return;}
+  if(!qty||!price){const el=document.getElementById("imsg");if(el)el.innerHTML='<div class="alert aok"><b>Please fill in quantity and price.</b></div>';return;}
   const cid=document.getElementById("icust")?.value||"";
-  APP.income.unshift({id:UID(),date:document.getElementById("id")?.value,productId:pid,product:p?p.name:(s?.options[s?.selectedIndex]?.text||"Other"),qty,unit:document.getElementById("iu")?.value||"units",price,total:qty*price,customerId:cid,customer:cid?APP.customers.find(c=>c.id===cid)?.name||"":""});
-  SS.set("pv_income",APP.income);
-  const el=document.getElementById("imsg");if(el)el.innerHTML=`<div class="alert alert-ok">✓ Sale recorded successfully!</div>`;
-  setTimeout(()=>rIncome(document.getElementById("vh"),false),600);
+  const row={id:UID(),date:document.getElementById("id")?.value,product_id:(pid&&pid!="_other")?pid:null,product:p?p.name:(s?.options[s?.selectedIndex]?.text||"Other"),qty,unit:document.getElementById("iu")?.value||"units",price,total:qty*price,customer_id:cid||null,customer:cid?APP.customers.find(c=>c.id===cid)?.name||"":""};
+  const el=document.getElementById("imsg");
+  if(el)el.innerHTML='<div class="alert aok" style="opacity:.7">Saving to database...</div>';
+  try {
+    await DB.insert("pv_income", row);
+    APP.income.unshift({...row,productId:row.product_id,customerId:row.customer_id,total:Number(row.total),qty:Number(row.qty),price:Number(row.price)});
+    APP.income.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    if(el)el.innerHTML='<div class="alert aok">✓ Sale saved to PV Farms database!</div>';
+    setTimeout(()=>rIncome(document.getElementById("vh"),false),700);
+  } catch(e) { if(el)el.innerHTML='<div class="alert aerr">Save failed: '+e.message+'</div>'; }
 }
-function dInc(id){if(!confirm("Delete this sale?"))return;APP.income=APP.income.filter(r=>r.id!==id);SS.set("pv_income",APP.income);rIncome(document.getElementById("vh"),APP.user.role==="investor");}
+async function dInc(id){
+  if(!confirm("Delete this sale?"))return;
+  try{await DB.del("pv_income",id);APP.income=APP.income.filter(r=>r.id!==id);}
+  catch(e){alert("Delete failed: "+e.message);return;}
+  rIncome(document.getElementById('vh'),APP.user.role==="investor");
+}
 
 // ══════════════════════════════════════════════════════════════
 // EXPENSES
@@ -741,7 +823,7 @@ function rExp(h,ro){
   ${!ro?`<div class="card">
     <div class="card-header"><div class="card-title">Record an expense</div></div>
     <div class="form-grid fg2">
-      <div class="field"><label>Date</label><input type="date" id="ed" value="${TD()}"></div>
+      <div class="field"><label>Date <span style="font-weight:400;color:var(--gray-400);font-size:11px">— any past date works</span></label><input type="date" id="ed" value="${TD()}"></div>
       <div class="field"><label>Group</label><select id="egr" onchange="oGC()">${Object.keys(EG).map(g=>`<option>${g}</option>`).join("")}</select></div>
       <div class="field"><label>Category</label><select id="ec">${EG[Object.keys(EG)[0]].map(c=>`<option>${c}</option>`).join("")}</select></div>
       <div class="field"><label>Source</label><select id="es"><option>Staff</option><option>Own Farm</option><option>Outgrower</option><option>Market / Supplier</option><option>N/A</option></select></div>
@@ -792,15 +874,27 @@ function rExp(h,ro){
   if(!ro){const q=document.getElementById("eq"),c=document.getElementById("eco");const u=()=>{const t=(parseFloat(q?.value)||0)*(parseFloat(c?.value)||0);const el=document.getElementById("epr2");if(el)el.textContent=t>0?"= "+ZMW(t):"";};q?.addEventListener("input",u);c?.addEventListener("input",u);}
 }
 function oGC(){const g=document.getElementById("egr")?.value,s=document.getElementById("ec");if(s&&EG[g])s.innerHTML=EG[g].map(c=>`<option>${c}</option>`).join("");}
-function addExp(){
+async function addExp(){
   const qty=parseFloat(document.getElementById("eq")?.value)||0,cost=parseFloat(document.getElementById("eco")?.value)||0;
-  if(!qty||!cost){const el=document.getElementById("emsg");if(el)el.innerHTML=`<div class="alert alert-err">Please fill in quantity and cost.</div>`;return;}
-  APP.expenses.unshift({id:UID(),date:document.getElementById("ed")?.value,group:document.getElementById("egr")?.value,category:document.getElementById("ec")?.value,source:document.getElementById("es")?.value,qty,unit:document.getElementById("eu")?.value,cost,total:qty*cost,notes:document.getElementById("en")?.value||""});
-  SS.set("pv_expenses",APP.expenses);
-  const el=document.getElementById("emsg");if(el)el.innerHTML=`<div class="alert alert-ok">✓ Expense recorded!</div>`;
-  setTimeout(()=>rExp(document.getElementById("vh"),false),600);
+  if(!qty||!cost){const el=document.getElementById("emsg");if(el)el.innerHTML='<div class="alert aerr">Please fill in quantity and cost.</div>';return;}
+  const grp=document.getElementById("egr")?.value;
+  const row={id:UID(),date:document.getElementById("ed")?.value,grp,category:document.getElementById("ec")?.value,source:document.getElementById("es")?.value,qty,unit:document.getElementById("eu")?.value,cost,total:qty*cost,notes:document.getElementById("en")?.value||""};
+  const el=document.getElementById("emsg");
+  if(el)el.innerHTML='<div class="alert aok" style="opacity:.7">Saving to database...</div>';
+  try {
+    await DB.insert("pv_expenses", row);
+    APP.expenses.unshift({...row,group:row.grp,total:Number(row.total),qty:Number(row.qty),cost:Number(row.cost)});
+    APP.expenses.sort((a,b)=>new Date(b.date)-new Date(a.date));
+    if(el)el.innerHTML='<div class="alert aok">✓ Expense saved to PV Farms database!</div>';
+    setTimeout(()=>rExp(document.getElementById("vh"),false),700);
+  } catch(e) { if(el)el.innerHTML='<div class="alert aerr">Save failed: '+e.message+'</div>'; }
 }
-function dExp(id){if(!confirm("Delete?"))return;APP.expenses=APP.expenses.filter(r=>r.id!==id);SS.set("pv_expenses",APP.expenses);rExp(document.getElementById("vh"),APP.user.role==="investor");}
+async function dExp(id){
+  if(!confirm("Delete this expense?"))return;
+  try{await DB.del("pv_expenses",id);APP.expenses=APP.expenses.filter(r=>r.id!==id);}
+  catch(e){alert("Delete failed: "+e.message);return;}
+  rExp(document.getElementById('vh'),APP.user.role==="investor");
+}
 
 // ══════════════════════════════════════════════════════════════
 // PRODUCTS
@@ -872,15 +966,22 @@ function rProds(h,ro){
   }).join("")}</div>`;
   if(!ro&&eid){const pp=document.getElementById("pp"),pc=document.getElementById("pc");const u=()=>{const p=parseFloat(pp?.value)||0,c=parseFloat(pc?.value)||0,m=p>0?((p-c)/p*100):0;const el=document.getElementById("pmsg");if(el&&p>0){const mc=m>=30?GREEN:m>=15?AMBER:RED;el.innerHTML=`Margin: <b style="color:${mc}">${m.toFixed(1)}%</b>`;}};pp?.addEventListener("input",u);pc?.addEventListener("input",u);}
 }
-function sProd(eid){
+async function sProd(eid){
   const name=document.getElementById("pn")?.value.trim(),price=parseFloat(document.getElementById("pp")?.value)||0;
-  if(!name||!price){const el=document.getElementById("pmsg");if(el)el.innerHTML=`<span style="color:${RED}">Name and price are required.</span>`;return;}
-  const d={name,unit:document.getElementById("pu")?.value.trim()||"units",price,costPerUnit:parseFloat(document.getElementById("pc")?.value)||0,description:document.getElementById("pd")?.value.trim()||""};
-  if(eid==="new")APP.products.push({...d,id:UID()});
-  else APP.products=APP.products.map(p=>p.id===eid?{...p,...d}:p);
-  SS.set("pv_products",APP.products);ST.editProdId=null;rProds(document.getElementById("vh"),false);
+  if(!name||!price){const el=document.getElementById("pmsg");if(el)el.innerHTML='<span style="color:#C41E52">Name and price required.</span>';return;}
+  const d={name,unit:document.getElementById("pu")?.value.trim()||"units",price,cost_per_unit:parseFloat(document.getElementById("pc")?.value)||0,description:document.getElementById("pd")?.value.trim()||""};
+  try {
+    if(eid==="new"){const nid=UID();await DB.insert("pv_products",{...d,id:nid});APP.products.push({...d,id:nid,costPerUnit:d.cost_per_unit});}
+    else{await DB.update("pv_products",eid,d);APP.products=APP.products.map(p=>p.id===eid?{...p,...d,costPerUnit:d.cost_per_unit}:p);}
+  } catch(e){alert("Save failed: "+e.message);return;}
+  ST.editProdId=null;rProds(document.getElementById("vh"),false);
 }
-function dProd(id){if(!confirm("Remove this product?"))return;APP.products=APP.products.filter(p=>p.id!==id);SS.set("pv_products",APP.products);rProds(document.getElementById("vh"),APP.user.role==="investor");}
+async function dProd(id){
+  if(!confirm("Remove this product?"))return;
+  try{await DB.del("pv_products",id);APP.products=APP.products.filter(p=>p.id!==id);}
+  catch(e){alert("Delete failed: "+e.message);return;}
+  rProds(document.getElementById('vh'),APP.user.role==="investor");
+}
 
 // ══════════════════════════════════════════════════════════════
 // CUSTOMERS
@@ -955,15 +1056,22 @@ function rCustF(h,ro,eid){
     <div id="cmsg"></div>
   </div>`;
 }
-function sCust(eid){
+async function sCust(eid){
   const name=document.getElementById("cn")?.value.trim();
-  if(!name){const el=document.getElementById("cmsg");if(el)el.innerHTML=`<div class="alert alert-err">Name is required.</div>`;return;}
+  if(!name){const el=document.getElementById("cmsg");if(el)el.innerHTML='<div class="alert aerr">Name is required.</div>';return;}
   const d={name,type:document.getElementById("ct")?.value,contact:document.getElementById("ccn")?.value.trim(),phone:document.getElementById("cph")?.value.trim(),email:document.getElementById("cem")?.value.trim(),city:document.getElementById("ccy")?.value.trim(),address:document.getElementById("cad")?.value.trim()};
-  if(eid==="new")APP.customers.push({...d,id:UID(),createdAt:TD()});
-  else APP.customers=APP.customers.map(c=>c.id===eid?{...c,...d}:c);
-  SS.set("pv_customers",APP.customers);ST.editCustId=null;rCusts(document.getElementById("vh"),APP.user.role==="investor");
+  try {
+    if(eid==="new"){const nid=UID();await DB.insert("pv_customers",{...d,id:nid});APP.customers.push({...d,id:nid});}
+    else{await DB.update("pv_customers",eid,d);APP.customers=APP.customers.map(c=>c.id===eid?{...c,...d}:c);}
+  } catch(e){alert("Save failed: "+e.message);return;}
+  ST.editCustId=null;rCusts(document.getElementById("vh"),APP.user.role==="investor");
 }
-function dCust(id){if(!confirm("Remove this customer?"))return;APP.customers=APP.customers.filter(c=>c.id!==id);SS.set("pv_customers",APP.customers);rCusts(document.getElementById("vh"),APP.user.role==="investor");}
+async function dCust(id){
+  if(!confirm("Remove this customer?"))return;
+  try{await DB.del("pv_customers",id);APP.customers=APP.customers.filter(c=>c.id!==id);}
+  catch(e){alert("Delete failed: "+e.message);return;}
+  rCusts(document.getElementById('vh'),APP.user.role==="investor");
+}
 function rCustD(h,ro,id){
   const c=APP.customers.find(x=>x.id===id);if(!c){ST.custView=null;rCusts(h,ro);return;}
   const sales=APP.income.filter(r=>r.customerId===id).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -1019,7 +1127,7 @@ function rMonthly(h){
   const eg=Object.keys(EG).map(g=>({g,t:mE.filter(r=>r.group===g).reduce((s,r)=>s+r.total,0)})).filter(x=>x.t>0);
   h.innerHTML=`
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
-    <div><div class="page-title">Monthly Reports</div><div class="page-sub">Detailed breakdown by month</div></div>
+    <div><div class="page-title">Monthly Reports</div><div class="page-sub">Detailed breakdown by month — including past months like April, May and earlier</div></div>
     <select style="font-family:'DM Sans',sans-serif;font-size:14px;padding:9px 14px;border:1.5px solid var(--gray-200);border-radius:8px;background:white;color:var(--gray-700);font-weight:500" onchange="ST.monSel=this.value;rMonthly(document.getElementById('vh'))">${allM.map(m=>`<option value="${m}" ${m===sel?"selected":""}>${FM(m)}</option>`).join("")}</select>
   </div>
   <div class="kpi-grid">
@@ -1115,9 +1223,27 @@ function rUsers(h){
     </div>
   </div>`;
 }
-function aUser(){const n=document.getElementById("un")?.value.trim(),u=document.getElementById("uu")?.value.trim(),p=document.getElementById("upw")?.value,r=document.getElementById("ur")?.value;if(!n||!u||!p){const el=document.getElementById("umsg");if(el)el.innerHTML=`<div class="alert alert-err">Please fill in all fields.</div>`;return;}if(APP.users.find(x=>x.username.toLowerCase()===u.toLowerCase())){const el=document.getElementById("umsg");if(el)el.innerHTML=`<div class="alert alert-err">Username already exists.</div>`;return;}APP.users.push({id:UID(),name:n,username:u,password:p,role:r});SS.set("pv_users",APP.users);rUsers(document.getElementById("vh"));}
-function rmUser(id){if(id===APP.user.id){alert("You cannot remove your own account.");return;}if(!confirm("Remove this user?"))return;APP.users=APP.users.filter(u=>u.id!==id);SS.set("pv_users",APP.users);rUsers(document.getElementById("vh"));}
-function rPw(id,name){const p=prompt("New password for "+name+":");if(!p)return;APP.users=APP.users.map(u=>u.id===id?{...u,password:p}:u);SS.set("pv_users",APP.users);alert("Password updated.");}
+async function aUser(){
+  const n=document.getElementById("un")?.value.trim(),u=document.getElementById("uu")?.value.trim(),p=document.getElementById("upw")?.value,r=document.getElementById("ur")?.value;
+  if(!n||!u||!p){const el=document.getElementById("umsg");if(el)el.innerHTML='<div class="alert aerr">Please fill all fields.</div>';return;}
+  if(APP.users.find(x=>x.username.toLowerCase()===u.toLowerCase())){const el=document.getElementById("umsg");if(el)el.innerHTML='<div class="alert aerr">Username already exists.</div>';return;}
+  try{const nu={id:UID(),name:n,username:u,password:p,role:r};await DB.insert("pv_users",nu);APP.users.push(nu);}
+  catch(e){alert("Save failed: "+e.message);return;}
+  rUsers(document.getElementById("vh"));
+}
+async function rmUser(id){
+  if(id===APP.user.id){alert("You cannot remove your own account.");return;}
+  if(!confirm("Remove this user?"))return;
+  try{await DB.del("pv_users",id);APP.users=APP.users.filter(u=>u.id!==id);}
+  catch(e){alert("Delete failed: "+e.message);return;}
+  rUsers(document.getElementById("vh"));
+}
+async function rPw(id,name){
+  const p=prompt("New password for "+name+":");
+  if(!p)return;
+  try{await DB.update("pv_users",id,{password:p});APP.users=APP.users.map(u=>u.id===id?{...u,password:p}:u);alert("Password updated!");}
+  catch(e){alert("Update failed: "+e.message);}
+}
 
 init();
 </script>
