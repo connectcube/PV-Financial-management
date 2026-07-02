@@ -2161,7 +2161,7 @@ function rEmployees(h, ro) {
     nameWrap.style.cssText = "display:flex;align-items:center;gap:10px";
     const av = document.createElement("div");
     av.style.cssText = "width:34px;height:34px;border-radius:50%;background:" + RED + "18;color:" + RED + ";display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0";
-    av.textContent = INI(e.name||"?");
+    av.textContent = initials(e.name||"?");
     const nameInfo = document.createElement("div");
     const nameEl = document.createElement("div");
     nameEl.style.fontWeight = "600";
