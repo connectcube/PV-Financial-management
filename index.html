@@ -2102,45 +2102,141 @@ async function updateStatus(table, id, status, tab) {
 function rEmployees(h, ro) {
   if(ST.empForm !== undefined) { rEmpForm(h, ro, ST.empForm); return; }
   const emps = APP.employees;
-  const BT = String.fromCharCode(96); const esc = s => (s||"").replace(new RegExp(BT,'g'),"'").replace(/\\/g,"");
 
-  h.innerHTML = `
-  <div class="ph">
-    <div><div class="pt">Employees</div><div class="ps">${emps.length} employee${emps.length!==1?"s":""} registered</div></div>
-    ${!ro?`<button class="btn btn-p" onclick="ST.empForm='new';rEmployees(document.getElementById('vh'),false)">+ Add employee</button>`:""}
-  </div>
-  <div class="kgrid">
-    ${kpi("Total employees", emps.filter(e=>e.status==="active").length, "Active", BLUE)}
-    ${kpi("Salaried", emps.filter(e=>e.pay_type==="salary"&&e.status==="active").length, "", GREEN)}
-    ${kpi("Casual / Daily", emps.filter(e=>e.pay_type==="casual"&&e.status==="active").length, "", AMBER)}
-    ${kpi("Monthly salary bill", ZMW(emps.filter(e=>e.pay_type==="salary"&&e.status==="active").reduce((s,e)=>s+Number(e.basic_salary||0),0)), "Salaried only", RED)}
-  </div>
-  <div class="card">
-    <div class="ch"><div class="ct">All employees</div></div>
-    ${emps.length ? `<div style="overflow-x:auto"><table>
-      <thead><tr><th>Name</th><th>Position</th><th>Pay type</th><th class="tr">Rate</th><th>Status</th><th></th></tr></thead>
-      <tbody>${emps.map(e => {
-        const eid = e.id;
-        return `<tr>
-          <td>
-            <div style="display:flex;align-items:center;gap:10px">
-              <div style="width:34px;height:34px;border-radius:50%;background:${RED}18;color:${RED};display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${INI(e.name||"?")}</div>
-              <div><div style="font-weight:600">${esc(e.name)}</div><div style="font-size:11px;color:var(--gray-400)">${esc(e.employee_number)}</div></div>
-            </div>
-          </td>
-          <td style="color:var(--gray-600)">${esc(e.position)||"—"}</td>
-          <td><span class="badge ${e.pay_type==="salary"?"bg":"ba"}">${e.pay_type==="salary"?"Salaried":"Casual"}</span></td>
-          <td class="tr tm">${ZMW(Number(e.basic_salary||0))}${e.pay_type==="casual"?"/day":"/mo"}</td>
-          <td><span class="badge ${e.status==="active"?"bg":"bgy"}">${e.status||"active"}</span></td>
-          <td style="white-space:nowrap">
-            ${!ro ? `<button class="btn btn-s btn-sm" onclick="ST.empForm='${eid}';rEmployees(document.getElementById('vh'),false)">Edit</button>
-            <button class="btn btn-p btn-sm" style="margin-left:4px" onclick="generatePayslip('${eid}')">+ Payslip</button>
-            <button class="btn btn-d btn-sm" style="margin-left:4px" onclick="delEmp('${eid}')">✕</button>` : ""}
-          </td>
-        </tr>`;
-      }).join("")}</tbody>
-    </table></div>` : `<div class="empty"><div class="empty-ic">👷</div><div class="empty-t">No employees yet</div><div class="empty-s">Add your farm workers and staff</div></div>`}
-  </div>`;
+  // Build page using DOM to avoid template literal issues with employee data
+  h.innerHTML = "";
+
+  // Header
+  const ph = document.createElement("div");
+  ph.className = "ph";
+  ph.innerHTML = '<div><div class="pt">Employees</div><div class="ps">' + emps.length + " employee" + (emps.length!==1?"s":"") + " registered</div></div>";
+  if(!ro) {
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn btn-p";
+    addBtn.textContent = "+ Add employee";
+    addBtn.onclick = () => { ST.empForm="new"; rEmployees(document.getElementById("vh"), false); };
+    ph.appendChild(addBtn);
+  }
+  h.appendChild(ph);
+
+  // KPI grid
+  const kg = document.createElement("div");
+  kg.className = "kgrid";
+  const active = emps.filter(e=>e.status==="active");
+  const salaried = active.filter(e=>e.pay_type==="salary");
+  const casual = active.filter(e=>e.pay_type==="casual");
+  const bill = salaried.reduce((s,e)=>s+Number(e.basic_salary||0),0);
+  kg.innerHTML = kpi("Total employees", active.length, "Active", BLUE)
+    + kpi("Salaried", salaried.length, "", GREEN)
+    + kpi("Casual / Daily", casual.length, "", AMBER)
+    + kpi("Monthly salary bill", ZMW(bill), "Salaried only", RED);
+  h.appendChild(kg);
+
+  // Employee table card
+  const card = document.createElement("div");
+  card.className = "card";
+  const ch = document.createElement("div");
+  ch.className = "ch";
+  ch.innerHTML = '<div class="ct">All employees</div>';
+  card.appendChild(ch);
+
+  if(!emps.length) {
+    card.innerHTML += '<div class="empty"><div class="empty-ic">👷</div><div class="empty-t">No employees yet</div><div class="empty-s">Add your farm workers and staff</div></div>';
+    h.appendChild(card);
+    return;
+  }
+
+  const tableWrap = document.createElement("div");
+  tableWrap.style.overflowX = "auto";
+  const table = document.createElement("table");
+  table.innerHTML = "<thead><tr><th>Name</th><th>Position</th><th>Pay type</th><th class='tr'>Rate</th><th>Status</th><th></th></tr></thead>";
+  const tbody = document.createElement("tbody");
+
+  emps.forEach(e => {
+    const tr = document.createElement("tr");
+
+    // Name cell
+    const tdName = document.createElement("td");
+    const nameWrap = document.createElement("div");
+    nameWrap.style.cssText = "display:flex;align-items:center;gap:10px";
+    const av = document.createElement("div");
+    av.style.cssText = "width:34px;height:34px;border-radius:50%;background:" + RED + "18;color:" + RED + ";display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0";
+    av.textContent = INI(e.name||"?");
+    const nameInfo = document.createElement("div");
+    const nameEl = document.createElement("div");
+    nameEl.style.fontWeight = "600";
+    nameEl.textContent = e.name || "";
+    const numEl = document.createElement("div");
+    numEl.style.cssText = "font-size:11px;color:var(--gray-400)";
+    numEl.textContent = e.employee_number || "";
+    nameInfo.appendChild(nameEl);
+    nameInfo.appendChild(numEl);
+    nameWrap.appendChild(av);
+    nameWrap.appendChild(nameInfo);
+    tdName.appendChild(nameWrap);
+    tr.appendChild(tdName);
+
+    // Position
+    const tdPos = document.createElement("td");
+    tdPos.style.color = "var(--gray-600)";
+    tdPos.textContent = e.position || "—";
+    tr.appendChild(tdPos);
+
+    // Pay type badge
+    const tdPay = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "badge " + (e.pay_type==="salary"?"bg":"ba");
+    badge.textContent = e.pay_type==="salary"?"Salaried":"Casual";
+    tdPay.appendChild(badge);
+    tr.appendChild(tdPay);
+
+    // Rate
+    const tdRate = document.createElement("td");
+    tdRate.className = "tr tm";
+    tdRate.textContent = ZMW(Number(e.basic_salary||0)) + (e.pay_type==="casual"?"/day":"/mo");
+    tr.appendChild(tdRate);
+
+    // Status
+    const tdStat = document.createElement("td");
+    const statBadge = document.createElement("span");
+    statBadge.className = "badge " + (e.status==="active"?"bg":"bgy");
+    statBadge.textContent = e.status || "active";
+    tdStat.appendChild(statBadge);
+    tr.appendChild(tdStat);
+
+    // Actions
+    const tdAct = document.createElement("td");
+    tdAct.style.whiteSpace = "nowrap";
+    if(!ro) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "btn btn-s btn-sm";
+      editBtn.textContent = "Edit";
+      editBtn.onclick = () => { ST.empForm = e.id; rEmployees(document.getElementById("vh"), false); };
+
+      const payBtn = document.createElement("button");
+      payBtn.className = "btn btn-p btn-sm";
+      payBtn.style.marginLeft = "4px";
+      payBtn.textContent = "+ Payslip";
+      payBtn.onclick = () => generatePayslip(e.id);
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "btn btn-d btn-sm";
+      delBtn.style.marginLeft = "4px";
+      delBtn.textContent = "✕";
+      delBtn.onclick = () => delEmp(e.id);
+
+      tdAct.appendChild(editBtn);
+      tdAct.appendChild(payBtn);
+      tdAct.appendChild(delBtn);
+    }
+    tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  card.appendChild(tableWrap);
+  h.appendChild(card);
 }
 
 
